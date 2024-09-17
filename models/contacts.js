@@ -2,11 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { nanoid } from "nanoid";
 
-// THIS IS JUST MAKING USE OF THE FILE SYSTEM METHODS FROM NODEJS MODULE 01
-
 const contactsPath = path.join("models", "contacts.json");
 
-// fs.readFile
 const listContacts = async () => {
   const contacts = await fs.readFile(contactsPath);
   return JSON.parse(contacts);
@@ -18,21 +15,6 @@ const getContactById = async (contactId) => {
   return result || null;
 };
 
-// fs.writeFile
-const addContact = async ({ name, email, phone }) => {
-  const contacts = await listContacts();
-  const newContact = {
-    id: nanoid(),
-    name,
-    email,
-    phone,
-  };
-  const allContacts = [...contacts, newContact];
-  await fs.writeFile(contactsPath, JSON.stringify(allContacts, null, 2));
-  return newContact;
-};
-
-// fs.writeFile
 const removeContact = async (contactId) => {
   const contacts = await listContacts();
   const index = contacts.findIndex((item) => item.id === contactId);
@@ -46,7 +28,19 @@ const removeContact = async (contactId) => {
   return deletedContact;
 };
 
-// fs.writeFile
+const addContact = async ({ name, email, phone }) => {
+  const contacts = await listContacts();
+  const newContact = {
+    id: nanoid(),
+    name,
+    email,
+    phone,
+  };
+  const allContacts = [...contacts, newContact];
+  await fs.writeFile(contactsPath, JSON.stringify(allContacts, null, 2));
+  return newContact;
+};
+
 const updateContact = async (id, { name, email, phone }) => {
   const contacts = await listContacts();
   const index = contacts.findIndex((item) => item.id === id);

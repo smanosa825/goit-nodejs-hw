@@ -23,5 +23,4 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ message });
 });
 
-// module.exports = app;
 export { app };

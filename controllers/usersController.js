@@ -1,11 +1,13 @@
 import bcrypt from "bcrypt";
+import gravatar from "gravatar";
 import jwt from "jsonwebtoken";
 import "dotenv/config";
+import { Jimp } from "jimp";
+import path from "path";
+import fs from "fs/promises";
 import { User } from "../models/usersModel.js";
-import {
-  signupValidation,
-  subscriptionValidation,
-} from "../validations/validations.js";
+// prettier-ignore
+import { signupValidation, subscriptionValidation } from "../validations/validations.js";
 import { httpError } from "../helpers/httpErrors.js";
 
 const { SECRET_KEY } = process.env;
@@ -13,27 +15,35 @@ const { SECRET_KEY } = process.env;
 const signupUser = async (req, res) => {
   const { email, password } = req.body;
 
-  // Registration validation error
+  //  Registration validation error
   const { error } = signupValidation.validate(req.body);
   if (error) {
     throw httpError(400, error.message);
   }
 
-  //Registration conflict error
+  // Registration conflict error
   const user = await User.findOne({ email });
   if (user) {
-    throw httpError(409, "Email in use");
+    throw httpError(409, "Email in Use");
   }
 
   const hashPassword = await bcrypt.hash(password, 10);
 
-  const newUser = await User.create({ email, password: hashPassword });
+  // Create a link to the user's avatar with gravatar
+  const avatarURL = gravatar.url(email, { protocol: "http" });
 
-  //Registration success response
+  const newUser = await User.create({
+    email,
+    password: hashPassword,
+    avatarURL,
+  });
+
+  // Registration success response
   res.status(201).json({
     user: {
       email: newUser.email,
       subscription: newUser.subscription,
+      avatarURL: newUser.avatarURL,
     },
   });
 };
@@ -41,19 +51,19 @@ const signupUser = async (req, res) => {
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
-  //Login validation error
+  //  Login validation error
   const { error } = signupValidation.validate(req.body);
   if (error) {
     throw httpError(401, error.message);
   }
 
-  //Login auth error (email)
+  // Login auth error (email)
   const user = await User.findOne({ email });
   if (!user) {
     throw httpError(401, "Email or password is wrong");
   }
 
-  //Login auth error (password)
+  // Login auth error (password)
   const isPasswordValid = await bcrypt.compare(password, user.password);
   if (!isPasswordValid) {
     throw httpError(401, "Email or password is wrong");
@@ -64,7 +74,7 @@ const loginUser = async (req, res) => {
 
   await User.findByIdAndUpdate(user._id, { token });
 
-  //Login success response
+  //   Login success response
   res.status(200).json({
     token: token,
     user: {
@@ -77,10 +87,10 @@ const loginUser = async (req, res) => {
 const logoutUser = async (req, res) => {
   const { _id } = req.user;
 
-  // Logout unauthorized error (seeting token to empty string will remove token -> will logout)
+  // Logout unauthorized error (setting token to empty string will remove token -> will logout)
   await User.findByIdAndUpdate(_id, { token: "" });
 
-  //Logout success response
+  //   Logout success response
   res.status(204).send();
 };
 
@@ -106,15 +116,40 @@ const updateUserSubscription = async (req, res) => {
   });
 
   res.json({
-    email: updateUserSubscription.email,
+    email: updatedUser.email,
     subscription: updatedUser.subscription,
   });
 };
 
-export {
-  signupUser,
-  loginUser,
-  logoutUser,
-  getCurrentUsers,
-  updateUserSubscription,
+const updateAvatar = async (req, res) => {
+  try {
+    const { _id } = req.user;
+    const { path: oldPath, originalname } = req.file;
+
+    await Jimp.read(oldPath)
+      .then((image) => {
+        // image.resize(250, 250).write(oldPath)
+        image.resize({ w: 250, h: 250 }).write(oldPath);
+      })
+      .catch((error) => console.log(error));
+
+    const extension = path.extname(originalname);
+    const filename = `${_id}${extension}`;
+
+    const newPath = path.join("public", "avatars", filename);
+    await fs.rename(oldPath, newPath);
+
+    let avatarURL = path.join("/avatars", filename);
+    avatarURL = avatarURL.replace(/\\/g, "/");
+
+    await User.findByIdAndUpdate(_id, { avatarURL });
+
+    res.status(200).json({ avatarURL });
+  } catch (error) {
+    console.error("Error in updateAvatar:", error); // Debug log
+    res.status(500).json({ message: error.message });
+  }
 };
+
+// prettier-ignore
+export { signupUser, loginUser, logoutUser, getCurrentUsers, updateUserSubscription, updateAvatar};

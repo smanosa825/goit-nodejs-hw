@@ -6,8 +6,10 @@ import {
   logoutUser,
   getCurrentUsers,
   updateUserSubscription,
+  updateAvatar,
 } from "../../controllers/usersController.js";
 import { authenticateToken } from "../../middlewares/authenticateToken.js";
+import { upload } from "../../middlewares/upload.js";
 
 const router = express.Router();
 
@@ -39,5 +41,13 @@ router.get("/current", authenticateToken, controlWrapper(getCurrentUsers));
 }
 */
 router.patch("/", authenticateToken, controlWrapper(updateUserSubscription));
+
+/* PATCH: // http://localhost:3000/api/users/avatars
+    form-data
+    avatar,file : image
+*/
+
+// prettier-ignore
+router.patch("/avatars", authenticateToken, upload.single("avatar"), controlWrapper(updateAvatar));
 
 export { router };

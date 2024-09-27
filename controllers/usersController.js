@@ -7,10 +7,12 @@ import path from "path";
 import fs from "fs/promises";
 import { User } from "../models/usersModel.js";
 // prettier-ignore
-import { signupValidation, subscriptionValidation } from "../validations/validations.js";
+import { emailValidation, signupValidation, subscriptionValidation } from "../validations/validations.js";
 import { httpError } from "../helpers/httpErrors.js";
+import { sendEmail } from "../helpers/sendEmail.js";
+import { v4 as uuid4 } from "uuid";
 
-const { SECRET_KEY } = process.env;
+const { SECRET_KEY, PORT } = process.env;
 
 const signupUser = async (req, res) => {
   const { email, password } = req.body;
@@ -32,10 +34,26 @@ const signupUser = async (req, res) => {
   // Create a link to the user's avatar with gravatar
   const avatarURL = gravatar.url(email, { protocol: "http" });
 
+  // create a verification for the user
+  // const verificationToken = uuid4();
+  const verificationToken = jwt.sign({ email }, SECRET_KEY, {
+    expiresIn: "24h",
+  });
+
   const newUser = await User.create({
     email,
     password: hashPassword,
     avatarURL,
+    verificationToken,
+  });
+  // Send an email to the user's mail and specify a link to verify the email (/users/verify/:verificationToken) in the message
+  await sendEmail({
+    to: email,
+    subject: "Action Required: Verify Your Email",
+    html: `
+    <p>Thank you for signing up! Please verify your email by clicking the link below:</p>
+    <a target="_blank" href="http://localhost:${PORT}/api/users/verify/${verificationToken}">Click to verify email</a>
+    <p><strong>Note:</strong> Your verification link will expire in 24 hours.</p>`,
   });
 
   // Registration success response
@@ -44,6 +62,7 @@ const signupUser = async (req, res) => {
       email: newUser.email,
       subscription: newUser.subscription,
       avatarURL: newUser.avatarURL,
+      verificationToken,
     },
   });
 };
@@ -122,34 +141,77 @@ const updateUserSubscription = async (req, res) => {
 };
 
 const updateAvatar = async (req, res) => {
-  try {
-    const { _id } = req.user;
-    const { path: oldPath, originalname } = req.file;
+  const { _id } = req.user;
+  const { path: oldPath, originalname } = req.file;
 
-    await Jimp.read(oldPath)
-      .then((image) => {
-        // image.resize(250, 250).write(oldPath)
-        image.resize({ w: 250, h: 250 }).write(oldPath);
-      })
-      .catch((error) => console.log(error));
+  await Jimp.read(oldPath).then((image) =>
+    // image.resize(250, 250).write(oldPath)
+    image.cover(250, 250).write(oldPath)
+  );
 
-    const extension = path.extname(originalname);
-    const filename = `${_id}${extension}`;
+  const extension = path.extname(originalname);
+  const filename = `${_id}${extension}`;
 
-    const newPath = path.join("public", "avatars", filename);
-    await fs.rename(oldPath, newPath);
+  const newPath = path.join("public", "avatars", filename);
+  await fs.rename(oldPath, newPath);
 
-    let avatarURL = path.join("/avatars", filename);
-    avatarURL = avatarURL.replace(/\\/g, "/");
+  let avatarURL = path.join("/avatars", filename);
+  avatarURL = avatarURL.replace(/\\/g, "/");
 
-    await User.findByIdAndUpdate(_id, { avatarURL });
+  await User.findByIdAndUpdate(_id, { avatarURL });
+  res.status(200).json({ avatarURL });
+};
 
-    res.status(200).json({ avatarURL });
-  } catch (error) {
-    console.error("Error in updateAvatar:", error); // Debug log
-    res.status(500).json({ message: error.message });
+const verifyEmail = async (req, res) => {
+  const { verificationToken } = req.params;
+
+  const user = await User.findOne({ verificationToken });
+
+  // Verification user not found
+  if (!user) {
+    throw httpError(400, "User not found");
   }
+
+  await User.findByIdAndUpdate(user._id, {
+    verify: true,
+    verificationToken: null,
+  });
+
+  // Verification success response
+  res.json({
+    message: "Verification Successful",
+  });
+};
+
+const resendVerifyEmail = async (req, res) => {
+  const { email } = req.body;
+
+  // Resending email validation error
+  const { error } = emailValidation.validate(req.body);
+  if (error) {
+    throw httpError(400, error.message);
+  }
+
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    throw httpError(404, "The provided email address could not be found");
+  }
+
+  // Resend email for verified user
+  if (user.verify) {
+    throw httpError(400, "Verification has already been passed");
+  }
+
+  await sendEmail({
+    to: email,
+    subject: "Action Required: Verify Your Email",
+    html: `<a target="_blank" href="http://localhost:${PORT}/api/users/verify/${user.verificationToken}">Click to verify email</a>`,
+  });
+
+  // Resending an email success response
+  res.json({ message: "Verificaton email sent" });
 };
 
 // prettier-ignore
-export { signupUser, loginUser, logoutUser, getCurrentUsers, updateUserSubscription, updateAvatar};
+export { signupUser, loginUser, logoutUser, getCurrentUsers, updateUserSubscription, updateAvatar, verifyEmail, resendVerifyEmail};
